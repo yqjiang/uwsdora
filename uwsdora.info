@@ -1,0 +1,8 @@
+name = UWS
+description = "Metadata display customization for UWS"
+package = Islandora
+dependencies[] = islandora
+dependencies[] = islandora_solr
+dependencies[] = islandora_solr_metadata
+core = 7.x
+version = 7.x-dev

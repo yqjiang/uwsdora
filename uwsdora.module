@@ -1,0 +1,29 @@
+<?php
+
+/**
+ * @file
+ * Citation object view alter for UWS to display Solr metadata.
+ */
+
+/**
+ * Implements hook_CMODEL_PID_islandora_object_view_alter().
+ */
+function uwsdora_ir_citationcmodel_islandora_view_object_alter(AbstractObject &$object, &$output) {
+  drupal_add_js('misc/form.js');
+  drupal_add_js('misc/collapse.js');
+  $config_defined = islandora_solr_metadata_display_callback($object);
+  if ($config_defined) {
+    $description = islandora_solr_metadata_description_callback($object);
+    $weight = $output['citation.tab']['metadata']['#weight'];
+    if ($description) {
+      $output['citation.tab']['description'] = array(
+        '#markup' => $description,
+        '#weight' => $weight,
+      );
+    }
+    $output['citation.tab']['metadata'] = array(
+      '#markup' => $config_defined,
+      '#weight' => $weight++,
+    );
+  }
+}
