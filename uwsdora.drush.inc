@@ -147,7 +147,7 @@ function uwsdora_create_object($repo, $pid, &$context) {
     $handles = $dc->xpath('//dc:identifier');
     $matches = '';
     // There could be multiple identifier fields that come back.
-    if (count($handles) > 1) {
+    if (count($handles) > 0) {
       $pattern = '/http:/';
       foreach ($handles as $handle) {
         preg_match($pattern, (string) $handle, $matches);
@@ -157,10 +157,6 @@ function uwsdora_create_object($repo, $pid, &$context) {
           break;
         }
       }
-    }
-    // If there is only one identifier in DC.
-    elseif (count($handles) == 1) {
-      $handle = (string) reset($handles);
     }
     // If there is no handle we need to log the pid.
     if ($handle == '') {
@@ -532,12 +528,7 @@ WHERE {
 }
 EOQ;
 
-  // $context['results']['pids'] = $repo->repository->ri->sparqlQuery($query);
-  $results = $repo->repository->ri->sparqlQuery($query);
-  $context['results']['pids'] = array();
-  for ($i = 0; $i < 10; $i++) {
-    $context['results']['pids'][$i] = $results[$i];
-  }
+  $context['results']['pids'] = $repo->repository->ri->sparqlQuery($query);
 
   $uwsdora_migration_log = drupal_realpath("temporary://uwsdora_migration_log.txt");
   $fp_migration_log = fopen($uwsdora_migration_log, 'w+');
