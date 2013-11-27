@@ -146,6 +146,7 @@ function uwsdora_create_object($repo, $pid, &$context) {
     $dc->registerXPathNamespace('dc', "http://purl.org/dc/elements/1.1/");
     $handles = $dc->xpath('//dc:identifier');
     $matches = '';
+    $handle_found = FALSE;
     // There could be multiple identifier fields that come back.
     if (count($handles) > 0) {
       $pattern = '/http:/';
@@ -154,12 +155,14 @@ function uwsdora_create_object($repo, $pid, &$context) {
         // If we get a match then set the handle to be tha element in the array.
         if (count($matches) > 1) {
           $handle = (string) $handle;
+          $handle_found = TRUE;
           break;
         }
       }
     }
     // If there is no handle we need to log the pid.
-    if ($handle == '') {
+    if (!$handle_found) {
+      $handle = '';
       // Log pid for no handle.
       uwsdora_log_errors('has no object handle', $pid);
     }
