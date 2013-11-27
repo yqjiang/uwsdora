@@ -149,7 +149,7 @@ function uwsdora_create_object($repo, $pid, &$context) {
     $handle_found = FALSE;
     // There could be multiple identifier fields that come back.
     if (count($handles) > 0) {
-      $pattern = '/http:/';
+      $pattern = '/http:\/\/handle/';
       foreach ($handles as $handle) {
         preg_match($pattern, (string) $handle, $matches);
         // If we get a match then set the handle to be tha element in the array.
@@ -218,7 +218,7 @@ function uwsdora_create_object($repo, $pid, &$context) {
     // We need to determine which of the alt ids is the handle. and if it is an
     // array or just a string.
     if (isset($ds['dsAltID']) && is_array($ds['dsAltID'])) {
-      $pattern = '/http:/';
+      $pattern = '/http:\/\/handle/';
       foreach ($ds['dsAltID'] as $handle) {
         preg_match($pattern, $handle, $matches);
         // If we get a match then replace the node with the new node.
@@ -267,7 +267,7 @@ function uwsdora_create_object($repo, $pid, &$context) {
     }
     // We need to find out which identifier we need to replace.
     $identifiers = $xml_doc->getElementsByTagName('identifier');
-    $pattern = '/http:/';
+    $pattern = '/http:\/\/handle/';
     $identfier_found = FALSE;
     foreach ($identifiers as $identifier) {
       preg_match($pattern, $identifier->nodeValue, $matches);
