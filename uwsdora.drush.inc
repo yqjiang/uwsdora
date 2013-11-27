@@ -153,7 +153,7 @@ function uwsdora_create_object($repo, $pid, &$context) {
       foreach ($handles as $handle) {
         preg_match($pattern, (string) $handle, $matches);
         // If we get a match then set the handle to be tha element in the array.
-        if (count($matches) > 1) {
+        if (count($matches) > 0) {
           $handle = (string) $handle;
           $handle_found = TRUE;
           break;
@@ -231,8 +231,13 @@ function uwsdora_create_object($repo, $pid, &$context) {
     }
     elseif (isset($ds['dsAltID'])) {
       // If the altid is just a string.
-      uwsdora_log_handle($ds['dsAltID'], $pid, $dsid);
-      $alt_id_found = TRUE;
+      preg_match($pattern, $ds['dsAltID'], $matches);
+      // If we get a match then replace the node with the new node.
+      if (count($matches) > 0) {
+        uwsdora_log_handle($ds['dsAltID'], $pid, $dsid);
+        $alt_id_found = TRUE;
+        break;
+      }
     }
     // If not handle is found log it.
     if (!$alt_id_found) {
