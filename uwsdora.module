@@ -35,7 +35,7 @@ function uwsdora_ir_citationcmodel_islandora_view_object_alter(AbstractObject &$
 /**
  * Implements hook_islandora_required_objects().
  */
-function sfudora_islandora_required_objects(IslandoraTuque $connection) {
+function uwsdora_islandora_required_objects(IslandoraTuque $connection) {
   $module_path = drupal_get_path('module', 'uwsdora');
   
   $research_collection = $connection->repository->constructObject('uws:researchCollection');
