@@ -217,8 +217,8 @@ function uwsdora_create_object($repo, $pid, &$context) {
     $ds = $repo->api->m->getDatastream($pid, $dsid);
     // We need to determine which of the alt ids is the handle. and if it is an
     // array or just a string.
+    $pattern = '/http:\/\/handle/';
     if (isset($ds['dsAltID']) && is_array($ds['dsAltID'])) {
-      $pattern = '/http:\/\/handle/';
       foreach ($ds['dsAltID'] as $handle) {
         preg_match($pattern, $handle, $matches);
         // If we get a match then replace the node with the new node.
