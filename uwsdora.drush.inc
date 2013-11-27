@@ -280,24 +280,23 @@ function uwsdora_create_object($repo, $pid, &$context) {
     $dc->registerXPathNamespace('dc', "http://purl.org/dc/elements/1.1/");
     $handles = $dc->xpath('//dc:identifier');
     $matches = '';
+    $handle_found = FALSE;
     // There could be multiple identifier fields that come back.
-    if (count($handles) > 1) {
-      $pattern = '/http:/';
+    if (count($handles) > 0) {
+      $pattern = '/http:\/\/handle/';
       foreach ($handles as $handle) {
         preg_match($pattern, (string) $handle, $matches);
         // If we get a match then set the handle to be tha element in the array.
-        if (count($matches) > 1) {
+        if (count($matches) > 0) {
           $handle = (string) $handle;
+          $handle_found = TRUE;
           break;
         }
       }
     }
-    // If there is only one identifier in DC.
-    elseif (count($handles) == 1) {
-      $handle = (string) reset($handles);
-    }
     // If there is no handle we need to log the pid.
-    if ($handle == '') {
+    if (!$handle_found) {
+      $handle = '';
       // Log pid for no handle.
       uwsdora_log_errors('has no object handle', $pid);
     }
@@ -352,8 +351,8 @@ function uwsdora_create_object($repo, $pid, &$context) {
     $ds = $repo->api->m->getDatastream($pid, $dsid);
     // We need to determine which of the alt ids is the handle. and if it is an
     // array or just a string.
+    $pattern = '/http:\/\/handle/';
     if (isset($ds['dsAltID']) && is_array($ds['dsAltID'])) {
-      $pattern = '/http:/';
       foreach ($ds['dsAltID'] as $handle) {
         preg_match($pattern, $handle, $matches);
         // If we get a match then replace the node with the new node.
@@ -366,8 +365,13 @@ function uwsdora_create_object($repo, $pid, &$context) {
     }
     elseif (isset($ds['dsAltID'])) {
       // If the altid is just a string.
-      uwsdora_log_handle($ds['dsAltID'], $pid, $dsid);
-      $alt_id_found = TRUE;
+      preg_match($pattern, $ds['dsAltID'], $matches);
+      // If we get a match then replace the node with the new node.
+      if (count($matches) > 0) {
+        uwsdora_log_handle($ds['dsAltID'], $pid, $dsid);
+        $alt_id_found = TRUE;
+        break;
+      }
     }
     // If not handle is found log it.
     if (!$alt_id_found) {
@@ -397,7 +401,7 @@ function uwsdora_create_object($repo, $pid, &$context) {
     }
     // We need to find out which identifier we need to replace.
     $identifiers = $xml_doc->getElementsByTagName('identifier');
-    $pattern = '/http:/';
+    $pattern = '/http:\/\/handle/';
     $identfier_found = FALSE;
     foreach ($identifiers as $identifier) {
       preg_match($pattern, $identifier->nodeValue, $matches);
@@ -664,12 +668,7 @@ WHERE {
 }
 EOQ;
 
-  // $context['results']['pids'] = $repo->repository->ri->sparqlQuery($query);
-  $results = $repo->repository->ri->sparqlQuery($query);
-  $context['results']['pids'] = array();
-  for ($i = 0; $i < 10; $i++) {
-    $context['results']['pids'][$i] = $results[$i];
-  }
+  $context['results']['pids'] = $repo->repository->ri->sparqlQuery($query);
 
   $uwsdora_migration_log = drupal_realpath("temporary://uwsdora_migration_log.txt");
   $fp_migration_log = fopen($uwsdora_migration_log, 'w+');
