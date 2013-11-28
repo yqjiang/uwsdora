@@ -44,7 +44,7 @@ function uwsdora_schema() {
         'length' => 128,
         'not null' => TRUE,
       ),
-      'update' => array(
+      'updated' => array(
         'type' => 'int',
         'size' => 'tiny',
         'not null' => TRUE,
