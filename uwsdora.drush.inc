@@ -73,7 +73,7 @@ function drush_uwsdora_uws_batch_migration() {
  * The migration connects to a remote fedora and creates new objects on this
  * Fedora.
  */
-function drush_uwsdora_uws_batch_validate_marc() {
+function drush_uwsdora_uws_batch_validate_marc($offset,$limit) {
 
   // Prompt user to enter the remote Fedora.
   $source_fedora = drush_prompt('Enter an remote Fedora:', 'http://example:8080/fedora', TRUE);
@@ -94,9 +94,9 @@ function drush_uwsdora_uws_batch_validate_marc() {
     'title' => 'Batching...',
     'operations' => array(
       array('uwsdora_querie_remote_repo_for_pids', array($source)),
-      array('uwsdora_validate_marc_by_pids', array($source)),
+      array('uwsdora_validate_marc_by_pids', array($source,$offset,$limit)),
     ),
-    'finished' => 'uwsdora_validate_marc_complete',
+    'finished' => 'uwsdora_validate_marc_complete,',
   );
 
   // Set the batch.
@@ -122,7 +122,7 @@ function uwsdora_validate_marc_complete($success, $results, $operations) {
 /**
  * Function to iterate through the list of pids and valiate marcs.
  */
-function uwsdora_validate_marc_by_pids($repo, &$context) {
+function uwsdora_validate_marc_by_pids($repo,$offset,$limit, &$context) {
 
   // Set the variable $pids to be  the variable $context['results']['pids'].
   // $context['results']['pids'] is set from the first batch operation.
@@ -138,10 +138,11 @@ function uwsdora_validate_marc_by_pids($repo, &$context) {
   // Setup the sandbox if not already created.
   $sandbox = &$context['sandbox'];
   if (!isset($sandbox['offset'])) {
-    file_put_contents("public://invalidate_marcs.txt", '');
+    file_put_contents("public://invalidate_marcs_$offset-$limit.txt", '');
     $context['results']['success_count'] = 0;
-    $sandbox['offset'] = 0;
-    $sandbox['total'] = count($pids);
+    $sandbox['offset'] = $offset;
+    $left = count($pids) - $offset;
+    $sandbox['total'] = $left < ($limit-$offset) ? $left: $limit;
     if ($sandbox['total'] === 0) {
       return;
     }
@@ -151,7 +152,7 @@ function uwsdora_validate_marc_by_pids($repo, &$context) {
   $pid = $pids[$sandbox['offset']]['pid']['value'];
 
   // Validate marc.
-  uwsdora_validate_marc($repo, $pid, $context);
+  uwsdora_validate_marc($repo, $pid,$offset,$limit, $context);
 
   // Increment the sandbox offset.
   $sandbox['offset']++;
@@ -221,7 +222,7 @@ function uwsdora_migration_complete($success, $results, $operations) {
  * @param string $pid
  *   The pid of the object on the remote Fedora.
  */
-function uwsdora_validate_marc($repo, $pid, &$context) {
+function uwsdora_validate_marc($repo, $pid,$offset,$limit, &$context) {
   module_load_include('inc', 'islandora', 'includes/utilities');
   // Get the old object from the remote fedora.
   $object = $repo->repository->getObject(urldecode($pid));
@@ -245,11 +246,18 @@ function uwsdora_validate_marc($repo, $pid, &$context) {
       foreach ($errors as $error) {
         $message .= trim($error->message) . "\n";
       }
-      file_put_contents("public://invalidate_marcs.txt", $message . "\n", FILE_APPEND);
+      file_put_contents("public://invalidate_marcs_$offset-$limit.txt", $message . "\n", FILE_APPEND);
     }
   }
   else {
-    file_put_contents("public://invalidate_marcs.txt", "Pid: $pid \n Do not have any marc records \n", FILE_APPEND);
+    libxml_clear_errors();
+    libxml_use_internal_errors(TRUE);
+    $errors = libxml_get_errors();
+    foreach ($errors as $error) {
+        $message .= trim($error->message) . "\n";
+     }
+    file_put_contents("public://invalidate_marcs_$offset-$limit.txt", $message . "\n", FILE_APPEND);
+
   }
 }
 
