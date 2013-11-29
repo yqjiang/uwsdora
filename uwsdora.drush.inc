@@ -26,7 +26,7 @@ function uwsdora_drush_command() {
  * The migration connects to a remote fedora and creates new objects on this
  * Fedora.
  */
-function drush_uwsdora_uws_batch_migration() {
+function drush_uwsdora_uws_batch_migration($start_index = 0) {
 
   // Prompt user to enter the remote Fedora.
   $source_fedora = drush_prompt('Enter an remote Fedora:', 'http://example:8080/fedora', TRUE);
@@ -47,7 +47,7 @@ function drush_uwsdora_uws_batch_migration() {
     'title' => 'Batching...',
     'operations' => array(
       array('uwsdora_querie_remote_repo_for_pids', array($source)),
-      array('uwsdora_process_pids', array($source)),
+      array('uwsdora_process_pids', array($source, $start_index)),
     ),
     'finished' => 'uwsdora_migration_complete',
   );
@@ -65,7 +65,7 @@ function drush_uwsdora_uws_batch_migration() {
  * This function creates new objects on this fedora based on pids from a remote
  * fedora. This functioin is called from the batch process.
  */
-function uwsdora_process_pids($repo, &$context) {
+function uwsdora_process_pids($repo, $start_index, &$context) {
 
   // Set the variable $pids to be  the variable $context['results']['pids'].
   // $context['results']['pids'] is set from the first batch operation.
@@ -75,8 +75,8 @@ function uwsdora_process_pids($repo, &$context) {
   // Setup the sandbox if not already created.
   $sandbox = &$context['sandbox'];
   if (!isset($sandbox['offset'])) {
-    $context['results']['success_count'] = 0;
-    $sandbox['offset'] = 0;
+    $context['results']['success_count'] = $start_index;
+    $sandbox['offset'] = $start_index;
     $sandbox['total'] = count($pids);
     if ($sandbox['total'] === 0) {
       return;
@@ -122,7 +122,7 @@ function uwsdora_migration_complete($success, $results, $operations) {
 function uwsdora_create_object($repo, $pid, &$context) {
   module_load_include('inc', 'islandora', 'includes/utilities');
 
-  if(!islandora_object_load($pid)) {
+  if (!islandora_object_load($pid)) {
     // Get the old object from the remote fedora.
     $object = $repo->repository->getObject(urldecode($pid));
 
@@ -153,7 +153,8 @@ function uwsdora_create_object($repo, $pid, &$context) {
         $pattern = '/http:\/\/handle/';
         foreach ($handles as $handle) {
           preg_match($pattern, (string) $handle, $matches);
-          // If we get a match then set the handle to be tha element in the array.
+          // If we get a match then set the handle to be tha element in the
+          // array.
           if (count($matches) > 0) {
             $handle = (string) $handle;
             $handle_found = TRUE;
@@ -216,8 +217,8 @@ function uwsdora_create_object($repo, $pid, &$context) {
       // Log all of the handles for this datastream.
       $alt_id_found = FALSE;
       $ds = $repo->api->m->getDatastream($pid, $dsid);
-      // We need to determine which of the alt ids is the handle. and if it is an
-      // array or just a string.
+      // We need to determine which of the alt ids is the handle. and if it is
+      // an array or just a string.
       $pattern = '/http:\/\/handle/';
       if (isset($ds['dsAltID']) && is_array($ds['dsAltID'])) {
         foreach ($ds['dsAltID'] as $handle) {
