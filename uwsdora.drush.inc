@@ -35,7 +35,7 @@ function uwsdora_drush_command() {
  * The migration connects to a remote fedora and creates new objects on this
  * Fedora.
  */
-function drush_uwsdora_uws_batch_migration() {
+function drush_uwsdora_uws_batch_migration($start_index = 0) {
 
   // Prompt user to enter the remote Fedora.
   $source_fedora = drush_prompt('Enter an remote Fedora:', 'http://example:8080/fedora', TRUE);
@@ -56,7 +56,7 @@ function drush_uwsdora_uws_batch_migration() {
     'title' => 'Batching...',
     'operations' => array(
       array('uwsdora_querie_remote_repo_for_pids', array($source)),
-      array('uwsdora_process_pids', array($source)),
+      array('uwsdora_process_pids', array($source, $start_index)),
     ),
     'finished' => 'uwsdora_migration_complete',
   );
@@ -168,7 +168,7 @@ function uwsdora_validate_marc_by_pids($repo,$offset,$limit, &$context) {
  * This function creates new objects on this fedora based on pids from a remote
  * fedora. This functioin is called from the batch process.
  */
-function uwsdora_process_pids($repo, &$context) {
+function uwsdora_process_pids($repo, $start_index, &$context) {
 
   // Set the variable $pids to be  the variable $context['results']['pids'].
   // $context['results']['pids'] is set from the first batch operation.
@@ -178,8 +178,8 @@ function uwsdora_process_pids($repo, &$context) {
   // Setup the sandbox if not already created.
   $sandbox = &$context['sandbox'];
   if (!isset($sandbox['offset'])) {
-    $context['results']['success_count'] = 0;
-    $sandbox['offset'] = 0;
+    $context['results']['success_count'] = $start_index;
+    $sandbox['offset'] = $start_index;
     $sandbox['total'] = count($pids);
     if ($sandbox['total'] === 0) {
       return;
@@ -264,210 +264,219 @@ function uwsdora_validate_marc($repo, $pid,$offset,$limit, &$context) {
 function uwsdora_create_object($repo, $pid, &$context) {
   module_load_include('inc', 'islandora', 'includes/utilities');
 
-  // Get the old object from the remote fedora.
-  $object = $repo->repository->getObject(urldecode($pid));
+  if (!islandora_object_load($pid)) {
+    // Get the old object from the remote fedora.
+    $object = $repo->repository->getObject(urldecode($pid));
 
-  // Set the default parent collection.
-  $parent_collection = 'uws:researchCollection';
+    // Set the default parent collection.
+    $parent_collection = 'uws:researchCollection';
 
-  // Determine the MARCXML record.
-  $marc_dsid = uwsdora_determine_marc_record($repo, $object);
+    // Determine the MARCXML record.
+    $marc_dsid = uwsdora_determine_marc_record($repo, $object);
 
-  if ($marc_dsid != 'no_marc') {
-    // Determine the parent collection.
-    $parent_collection = uwsdora_determine_collection($object[$marc_dsid]->content);
+    if ($marc_dsid != 'no_marc') {
+      // Determine the parent collection.
+      $parent_collection = uwsdora_determine_collection($object[$marc_dsid]->content);
 
-    // Transforms MARC to MODS.
-    $xml_doc = new DOMDocument();
-    $xml_doc->loadXML($object[$marc_dsid]->content);
-    $path_to_marc_to_mods_xsl_file = drupal_get_path('module', 'uwsdora') . '/transforms/MARC21slim2MODS3-4.xsl';
-    $mods_xml = uwsdora_transform($xml_doc, $path_to_marc_to_mods_xsl_file);
+      // Transforms MARC to MODS.
+      $xml_doc = new DOMDocument();
+      $xml_doc->loadXML($object[$marc_dsid]->content);
+      $path_to_marc_to_mods_xsl_file = drupal_get_path('module', 'uwsdora') . '/transforms/MARC21slim2MODS3-4.xsl';
+      $mods_xml = uwsdora_transform($xml_doc, $path_to_marc_to_mods_xsl_file);
 
-    // Get the handle from the old DC datastream.
-    $dc = new SimpleXMLElement($object['DC']->content);
-    $dc->registerXPathNamespace('dc', "http://purl.org/dc/elements/1.1/");
-    $handles = $dc->xpath('//dc:identifier');
-    $matches = '';
-    $handle_found = FALSE;
-    // There could be multiple identifier fields that come back.
-    if (count($handles) > 0) {
-      $pattern = '/http:\/\/handle/';
-      foreach ($handles as $handle) {
-        preg_match($pattern, (string) $handle, $matches);
-        // If we get a match then set the handle to be tha element in the array.
-        if (count($matches) > 0) {
-          $handle = (string) $handle;
-          $handle_found = TRUE;
-          break;
+      // Get the handle from the old DC datastream.
+      $dc = new SimpleXMLElement($object['DC']->content);
+      $dc->registerXPathNamespace('dc', "http://purl.org/dc/elements/1.1/");
+      $handles = $dc->xpath('//dc:identifier');
+      $matches = '';
+      $handle_found = FALSE;
+      // There could be multiple identifier fields that come back.
+      if (count($handles) > 0) {
+        $pattern = '/http:\/\/handle/';
+        foreach ($handles as $handle) {
+          preg_match($pattern, (string) $handle, $matches);
+          // If we get a match then set the handle to be tha element in the
+          // array.
+          if (count($matches) > 0) {
+            $handle = (string) $handle;
+            $handle_found = TRUE;
+            break;
+          }
         }
       }
-    }
-    // If there is no handle we need to log the pid.
-    if (!$handle_found) {
-      $handle = '';
-      // Log pid for no handle.
-      uwsdora_log_errors('has no object handle', $pid);
-    }
+      // If there is no handle we need to log the pid.
+      if (!$handle_found) {
+        $handle = '';
+        // Log pid for no handle.
+        uwsdora_log_errors('has no object handle', $pid);
+      }
 
-    // Create identifier for mods.
-    $xml_doc->loadXML($mods_xml);
-    $mods_doc = $xml_doc->getElementsByTagName('mods');
-    $mods_doc = $mods_doc->item(0);
-    $xml_identifier = $xml_doc->createElement('identifier', $handle);
-    $xml_identifier->setAttribute("type", "hdl");
-    $mods_doc->appendChild($xml_identifier);
-    $mods_xml = $xml_doc->saveXML();
+      // Create identifier for mods.
+      $xml_doc->loadXML($mods_xml);
+      $mods_doc = $xml_doc->getElementsByTagName('mods');
+      $mods_doc = $mods_doc->item(0);
+      $xml_identifier = $xml_doc->createElement('identifier', $handle);
+      $xml_identifier->setAttribute("type", "hdl");
+      $mods_doc->appendChild($xml_identifier);
+      $mods_xml = $xml_doc->saveXML();
 
-    // Transforms MODS to DC.
-    $xml_doc->loadXML($mods_xml);
-    $path_to_mods_to_dc_xsl_file = drupal_get_path('module', 'uwsdora') . '/transforms/mods_to_dc.xsl';
-    $dc_xml = uwsdora_transform($xml_doc, $path_to_mods_to_dc_xsl_file);
+      // Transforms MODS to DC.
+      $xml_doc->loadXML($mods_xml);
+      $path_to_mods_to_dc_xsl_file = drupal_get_path('module', 'uwsdora') . '/transforms/mods_to_dc.xsl';
+      $dc_xml = uwsdora_transform($xml_doc, $path_to_mods_to_dc_xsl_file);
 
-    // Get the title out of the MODS xml.
-    $mods = new SimpleXMLElement($mods_xml);
-    $mods->registerXPathNamespace('mods', 'http://www.loc.gov/mods/v3');
-    $title = $mods->xpath('//mods:mods/mods:titleInfo/mods:title');
-    if (count($title) > 0) {
-      $title = (string) reset($title);
-    }
-    else {
-      $title = $object->label;
-    }
-  }
-  else {
-    uwsdora_log_errors('There is no MARCXML', $pid);
-  }
-
-  // Create new object stub.
-  $new_object = islandora_prepare_new_object($pid, $title, array(), array('ir:citationCModel'), array(array('relationship' => 'isMemberOfCollection', 'pid' => $parent_collection)));
-
-  // Copy over all other datastreams to new object.
-  // Get all the dsids.
-  $all_dsids = uwsdora_get_all_dsids($repo, $pid);
-
-  // Iterate through array and copy datastreams.
-  foreach ($all_dsids as $dsid) {
-    if ($dsid == 'DC') {
-      uwsdora_create_datastream($new_object, 'OLD_DC', 'DC Record', 'text/xml', $object[$dsid]->content);
+      // Get the title out of the MODS xml.
+      $mods = new SimpleXMLElement($mods_xml);
+      $mods->registerXPathNamespace('mods', 'http://www.loc.gov/mods/v3');
+      $title = $mods->xpath('//mods:mods/mods:titleInfo/mods:title');
+      if (count($title) > 0) {
+        $title = (string) reset($title);
+      }
+      else {
+        $title = $object->label;
+      }
     }
     else {
-
-      $new_object->ingestDatastream($object[$dsid]);
+      uwsdora_log_errors('There is no MARCXML', $pid);
     }
-    // Log all of the handles for this datastream.
-    $alt_id_found = FALSE;
-    $ds = $repo->api->m->getDatastream($pid, $dsid);
-    // We need to determine which of the alt ids is the handle. and if it is an
-    // array or just a string.
-    $pattern = '/http:\/\/handle/';
-    if (isset($ds['dsAltID']) && is_array($ds['dsAltID'])) {
-      foreach ($ds['dsAltID'] as $handle) {
-        preg_match($pattern, $handle, $matches);
+
+    // Create new object stub.
+    $new_object = islandora_prepare_new_object($pid, $title, array(), array('ir:citationCModel'), array(array('relationship' => 'isMemberOfCollection', 'pid' => $parent_collection)));
+
+    // Copy over all other datastreams to new object.
+    // Get all the dsids.
+    $all_dsids = uwsdora_get_all_dsids($repo, $pid);
+
+    // Iterate through array and copy datastreams.
+    foreach ($all_dsids as $dsid) {
+      if ($dsid == 'DC') {
+        uwsdora_create_datastream($new_object, 'OLD_DC', 'DC Record', 'text/xml', $object[$dsid]->content);
+      }
+      else {
+
+        $new_object->ingestDatastream($object[$dsid]);
+      }
+      // Log all of the handles for this datastream.
+      $alt_id_found = FALSE;
+      $ds = $repo->api->m->getDatastream($pid, $dsid);
+      // We need to determine which of the alt ids is the handle. and if it is
+      // an array or just a string.
+      $pattern = '/http:\/\/handle/';
+      if (isset($ds['dsAltID']) && is_array($ds['dsAltID'])) {
+        foreach ($ds['dsAltID'] as $handle) {
+          preg_match($pattern, $handle, $matches);
+          // If we get a match then replace the node with the new node.
+          if (count($matches) > 0) {
+            uwsdora_log_handle($handle, $pid, $dsid);
+            $alt_id_found = TRUE;
+            break;
+          }
+        }
+      }
+      elseif (isset($ds['dsAltID'])) {
+        // If the altid is just a string.
+        preg_match($pattern, $ds['dsAltID'], $matches);
         // If we get a match then replace the node with the new node.
         if (count($matches) > 0) {
-          uwsdora_log_handle($handle, $pid, $dsid);
+          uwsdora_log_handle($ds['dsAltID'], $pid, $dsid);
           $alt_id_found = TRUE;
           break;
         }
       }
-    }
-    elseif (isset($ds['dsAltID'])) {
-      // If the altid is just a string.
-      preg_match($pattern, $ds['dsAltID'], $matches);
-      // If we get a match then replace the node with the new node.
-      if (count($matches) > 0) {
-        uwsdora_log_handle($ds['dsAltID'], $pid, $dsid);
-        $alt_id_found = TRUE;
-        break;
+      // If not handle is found log it.
+      if (!$alt_id_found) {
+        uwsdora_log_errors("$dsid has no handle", $pid);
       }
     }
-    // If not handle is found log it.
-    if (!$alt_id_found) {
-      uwsdora_log_errors("$dsid has no handle", $pid);
-    }
-  }
 
-  // Create MODS datastream.
-  // If there is no MARCXML did not do a transform to MODS then do a transform
-  // from DC to MODS.
-  if (empty($mods_xml)) {
-    $xml_doc = new DOMDocument();
-    $xml_doc->loadXML($object['DC']->content);
-    $path_to_dc_to_mods_xsl_file = drupal_get_path('module', 'uwsdora') . '/transforms/DC_MODS3-4_XSLT1-0.xsl';
-    $mods_xml = uwsdora_transform($xml_doc, $path_to_dc_to_mods_xsl_file);
+    // Create MODS datastream.
+    // If there is no MARCXML did not do a transform to MODS then do a transform
+    // from DC to MODS.
+    if (empty($mods_xml)) {
+      $xml_doc = new DOMDocument();
+      $xml_doc->loadXML($object['DC']->content);
+      $path_to_dc_to_mods_xsl_file = drupal_get_path('module', 'uwsdora') . '/transforms/DC_MODS3-4_XSLT1-0.xsl';
+      $mods_xml = uwsdora_transform($xml_doc, $path_to_dc_to_mods_xsl_file);
 
-    // Create identifier for mods.
-    $xml_doc->loadXML($mods_xml);
-    $mods_doc = $xml_doc->getElementsByTagName('mods');
-    $mods_doc = $mods_doc->item(0);
+      // Create identifier for mods.
+      $xml_doc->loadXML($mods_xml);
+      $mods_doc = $xml_doc->getElementsByTagName('mods');
+      $mods_doc = $mods_doc->item(0);
 
-    // Remove the location.
-    $locations = $xml_doc->getElementsByTagName('location');
-    // Remove all of the locations.
-    foreach ($locations as $location) {
-      $mods_doc->removeChild($location);
-    }
-    // We need to find out which identifier we need to replace.
-    $identifiers = $xml_doc->getElementsByTagName('identifier');
-    $pattern = '/http:\/\/handle/';
-    $identfier_found = FALSE;
-    foreach ($identifiers as $identifier) {
-      preg_match($pattern, $identifier->nodeValue, $matches);
-      // If we get a match then replace the node with the new node.
-      if (count($matches) > 0) {
-        // Replace old identifier with new identifier.
-        $xml_identifier = $xml_doc->createElement('identifier', $identifier->nodeValue);
-        $xml_identifier->setAttribute("type", "hdl");
-        $mods_doc->replaceChild($xml_identifier, $identifier);
-        $mods_xml = $xml_doc->saveXML();
-        $identfier_found = TRUE;
-        break;
+      // Remove the location.
+      $locations = $xml_doc->getElementsByTagName('location');
+      // Remove all of the locations.
+      foreach ($locations as $location) {
+        $mods_doc->removeChild($location);
+      }
+      // We need to find out which identifier we need to replace.
+      $identifiers = $xml_doc->getElementsByTagName('identifier');
+      $pattern = '/http:\/\/handle/';
+      $identfier_found = FALSE;
+      foreach ($identifiers as $identifier) {
+        preg_match($pattern, $identifier->nodeValue, $matches);
+        // If we get a match then replace the node with the new node.
+        if (count($matches) > 0) {
+          // Replace old identifier with new identifier.
+          $xml_identifier = $xml_doc->createElement('identifier', $identifier->nodeValue);
+          $xml_identifier->setAttribute("type", "hdl");
+          $mods_doc->replaceChild($xml_identifier, $identifier);
+          $mods_xml = $xml_doc->saveXML();
+          $identfier_found = TRUE;
+          break;
+        }
+      }
+      if (!$identfier_found) {
+        uwsdora_log_errors("no handle identifier in mods", $pid);
       }
     }
-    if (!$identfier_found) {
-      uwsdora_log_errors("no handle identifier in mods", $pid);
+
+    // Create MODS datastream.
+    uwsdora_create_datastream($new_object, 'MODS', 'MODS Record', 'text/xml', $mods_xml);
+
+    // Create DC datastream.
+    if (isset($dc_xml)) {
+      uwsdora_create_datastream($new_object, 'DC', 'DC Record', 'text/xml', $dc_xml);
     }
-  }
+    else {
+      uwsdora_log_errors("no new DC datastream created", $pid);
+    }
+    // Create PDF datastream.
+    $pdf_list = uwsdora_get_mimetype_dsids($repo, $object->id, "application/pdf");
 
-  // Create MODS datastream.
-  uwsdora_create_datastream($new_object, 'MODS', 'MODS Record', 'text/xml', $mods_xml);
+    if (count($pdf_list) > 0) {
+      // Merge all PDF files.
+      $pdf_final_file_path = uwsdora_merge_pdfs($repo, $object, $pdf_list);
+      // Create stub PDF datastream.
+      uwsdora_create_datastream($new_object, 'PDF', 'PDF Record', 'application/pdf', '');
+      // Set the content fo be the merged pdf file.
+      $new_object['PDF']->setContentFromFile($pdf_final_file_path);
+      // Delete the combined PDF file.
+      file_unmanaged_delete($pdf_final_file_path);
+    }
 
-  // Create DC datastream.
-  if (isset($dc_xml)) {
-    uwsdora_create_datastream($new_object, 'DC', 'DC Record', 'text/xml', $dc_xml);
+    try {
+      // Add object to fedora.
+      islandora_add_object($new_object);
+      $context['results']['success_count']++;
+      $message = t("Object: @pid,  message: @message  @count/@total \n", array(
+        '@pid' => $pid,
+        '@message' => 'successful ingest ',
+        '@total' => count($context['results']['pids']),
+        '@count' => $context['results']['success_count'],
+      ));
+
+      file_put_contents('/tmp/uwsdora_migration_log.txt', $message, FILE_APPEND);
+
+    }
+    catch (RepositoryException $e) {
+      // Failed to import.
+      uwsdora_log_errors($e->getMessage(), $pid);
+    }
   }
   else {
-    uwsdora_log_errors("no new DC datastream created", $pid);
-  }
-  // Create PDF datastream.
-  $pdf_list = uwsdora_get_mimetype_dsids($repo, $object->id, "application/pdf");
-
-  if (count($pdf_list) > 0) {
-    // Merge all PDF files.
-    $pdf_final_file_path = uwsdora_merge_pdfs($repo, $object, $pdf_list);
-    // Create stub PDF datastream.
-    uwsdora_create_datastream($new_object, 'PDF', 'PDF Record', 'application/pdf', '');
-    // Set the content fo be the merged pdf file.
-    $new_object['PDF']->setContentFromFile($pdf_final_file_path);
-    // Delete the combined PDF file.
-    file_unmanaged_delete($pdf_final_file_path);
-  }
-
-  try {
-    // Add object to fedora.
-    islandora_add_object($new_object);
+    drush_print("Object: $pid already exists");
     $context['results']['success_count']++;
-    $message = t("Object: @pid,  message: @message  @count/@total \n", array(
-      '@pid' => $pid,
-      '@message' => 'successful ingest ',
-      '@total' => count($context['results']['pids']),
-      '@count' => $context['results']['success_count'],
-    ));
-
-    file_put_contents('/tmp/uwsdora_migration_log.txt', $message, FILE_APPEND);
-  } catch (RepositoryException $e) {
-    // Failed to import.
-    uwsdora_log_errors($e->getMessage(), $pid);
   }
 }
 
@@ -678,18 +687,20 @@ EOQ;
 
   $context['results']['pids'] = $repo->repository->ri->sparqlQuery($query);
 
-  $uwsdora_migration_log = drupal_realpath("temporary://uwsdora_migration_log.txt");
-  $fp_migration_log = fopen($uwsdora_migration_log, 'w+');
-  file_put_contents($uwsdora_migration_log, '');
-  fclose($fp_migration_log);
+  if (!file_exists('/tmp/uwsdora_migration_log.txt')) {
+    $uwsdora_migration_log = drupal_realpath("temporary://uwsdora_migration_log.txt");
+    $fp_migration_log = fopen($uwsdora_migration_log, 'w+');
+    file_put_contents($uwsdora_migration_log, '');
+    fclose($fp_migration_log);
 
-  file_put_contents($uwsdora_migration_log, t("Migration Log \n"), FILE_APPEND);
+    file_put_contents($uwsdora_migration_log, t("Migration Log \n"), FILE_APPEND);
 
-  $message = t("Total number of objects from query is @count: \n", array(
-    '@count' => count($context['results']['pids']),
-  ));
+    $message = t("Total number of objects from query is @count: \n", array(
+      '@count' => count($context['results']['pids']),
+    ));
 
-  file_put_contents($uwsdora_migration_log, $message, FILE_APPEND);
+    file_put_contents($uwsdora_migration_log, $message, FILE_APPEND);
+  }
 }
 
 /**
