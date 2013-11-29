@@ -68,101 +68,6 @@ function drush_uwsdora_uws_batch_migration($start_index = 0) {
 }
 
 /**
- * UWS migration batch.
- *
- * The migration connects to a remote fedora and creates new objects on this
- * Fedora.
- */
-function drush_uwsdora_uws_batch_validate_marc($offset,$limit) {
-
-  // Prompt user to enter the remote Fedora.
-  $source_fedora = drush_prompt('Enter an remote Fedora:', 'http://example:8080/fedora', TRUE);
-  // Create a user object.
-  $source_user = new stdClass();
-  $source_user->uid = -1;
-  // Prompt user to enter the username and passowrd of the remote fedora.
-  $source_user->name = drush_prompt('Enter an admin user on the remote Fedora:', 'user', TRUE);
-  $source_user->pass = drush_prompt('Enter the password for the admin user:', 'password', TRUE, TRUE);
-
-  // Create a IslandoraTuque object to be used by the migration.
-  $source = new IslandoraTuque($source_user, $source_fedora);
-
-  // Set up a batch operation.
-  // The batch will have two operations one to query for the pids and the other
-  // to iterate through all of the pids and create the new objects.
-  $batch = array(
-    'title' => 'Batching...',
-    'operations' => array(
-      array('uwsdora_querie_remote_repo_for_pids', array($source)),
-      array('uwsdora_validate_marc_by_pids', array($source,$offset,$limit)),
-    ),
-    'finished' => 'uwsdora_validate_marc_complete,',
-  );
-
-  // Set the batch.
-  batch_set($batch);
-  // Process the batch process.
-  drush_backend_batch_process();
-}
-
-/**
- * Batch finish function.
- */
-function uwsdora_validate_marc_complete($success, $results, $operations) {
-  if ($success) {
-    $message = t("Total number of successful marc records complete validation @count/@total \n", array(
-      '@total' => count($results['pids']),
-      '@count' => $results['success_count'],
-    ));
-
-    file_put_contents('/tmp/uwsdora_migration_log.txt', $message, FILE_APPEND);
-  }
-}
-
-/**
- * Function to iterate through the list of pids and valiate marcs.
- */
-function uwsdora_validate_marc_by_pids($repo,$offset,$limit, &$context) {
-
-  // Set the variable $pids to be  the variable $context['results']['pids'].
-  // $context['results']['pids'] is set from the first batch operation.
-  $pids = $context['results']['pids'];
-  $result = &$context['results'];
-
-  if (!isset($result['marc']) || !$result['marc']) {
-    $marc = file_get_contents(drupal_get_path('module', 'uwsdora') . '/xsd/MARC21slim.xsd');
-    if ($marc) {
-      $result['marc'] = $marc;
-    }
-  }
-  // Setup the sandbox if not already created.
-  $sandbox = &$context['sandbox'];
-  if (!isset($sandbox['offset'])) {
-    file_put_contents("public://invalidate_marcs_$offset-$limit.txt", '');
-    $context['results']['success_count'] = 0;
-    $sandbox['offset'] = $offset;
-    $left = count($pids) - $offset;
-    $sandbox['total'] = $left < ($limit-$offset) ? $left: $limit;
-    if ($sandbox['total'] === 0) {
-      return;
-    }
-  }
-
-  // Get the pid of the sandbox offset.
-  $pid = $pids[$sandbox['offset']]['pid']['value'];
-
-  // Validate marc.
-  uwsdora_validate_marc($repo, $pid,$offset,$limit, $context);
-
-  // Increment the sandbox offset.
-  $sandbox['offset']++;
-
-  // Check to see if the operation is completed.  It is completed when all of
-  // the pids are processed.
-  $context['finished'] = $sandbox['offset'] / $sandbox['total'];
-}
-
-/**
  * Function to iterate through the list of pids and ingest new objects.
  *
  * This function creates new objects on this fedora based on pids from a remote
@@ -211,53 +116,6 @@ function uwsdora_migration_complete($success, $results, $operations) {
     ));
 
     file_put_contents('/tmp/uwsdora_migration_log.txt', $message, FILE_APPEND);
-  }
-}
-
-/**
- * Function to validate the marc record of remote fedora object.
- *
- * @param IslandoraTuque $repo
- *   The remote tuque connection.
- * @param string $pid
- *   The pid of the object on the remote Fedora.
- */
-function uwsdora_validate_marc($repo, $pid,$offset,$limit, &$context) {
-  module_load_include('inc', 'islandora', 'includes/utilities');
-  // Get the old object from the remote fedora.
-  $object = $repo->repository->getObject(urldecode($pid));
-
-  // Determine the MARCXML record.
-  $marc_dsid = uwsdora_determine_marc_record($repo, $object);
-  $result = &$context['results'];
-  $marc_validator = $result['marc'];
-  if ($marc_dsid != 'no_marc') {
-    $marc = $object[$marc_dsid]->content;
-    $marc_dom = new DOMDocument();
-    $marc_dom->loadXML($marc);
-    libxml_clear_errors();
-
-    // Get the validate result.
-    libxml_use_internal_errors(TRUE);
-    $validate = $marc_dom->schemaValidateSource($marc_validator);
-    $errors = libxml_get_errors();
-    if (!$validate) {
-      $message = "Pid: $pid \nHas marc record, but it is not validate. MARC record DSID: $marc_dsid \n";
-      foreach ($errors as $error) {
-        $message .= trim($error->message) . "\n";
-      }
-      file_put_contents("public://invalidate_marcs_$offset-$limit.txt", $message . "\n", FILE_APPEND);
-    }
-  }
-  else {
-    libxml_clear_errors();
-    libxml_use_internal_errors(TRUE);
-    $errors = libxml_get_errors();
-    foreach ($errors as $error) {
-        $message .= trim($error->message) . "\n";
-     }
-    file_put_contents("public://invalidate_marcs_$offset-$limit.txt", $message . "\n", FILE_APPEND);
-
   }
 }
 
@@ -861,4 +719,160 @@ function uwsdora_log_errors($message, $pid) {
   ));
 
   file_put_contents('/tmp/uwsdora_migration_log.txt', $out, FILE_APPEND);
+}
+
+/**
+ * Function to validate the marc record of remote fedora object.
+ *
+ * @param IslandoraTuque $repo
+ *   The remote tuque connection.
+ * @param string $pid
+ *   The pid of the object on the remote Fedora.
+ * @param int $offset
+ *   The offset that start with.
+ * @param int $limit
+ *   The number that stop with.
+ */
+function uwsdora_validate_marc($repo, $pid, $offset, $limit, &$context) {
+  module_load_include('inc', 'islandora', 'includes/utilities');
+  // Get the old object from the remote fedora.
+  $object = $repo->repository->getObject(urldecode($pid));
+
+  // Determine the MARCXML record.
+  $marc_dsid = uwsdora_determine_marc_record($repo, $object);
+  $result = &$context['results'];
+  $marc_validator = $result['marc'];
+  if ($marc_dsid != 'no_marc') {
+    $marc = $object[$marc_dsid]->content;
+    $marc_dom = new DOMDocument();
+    $marc_dom->loadXML($marc);
+    libxml_clear_errors();
+
+    // Get the validate result.
+    libxml_use_internal_errors(TRUE);
+    $validate = $marc_dom->schemaValidateSource($marc_validator);
+    $errors = libxml_get_errors();
+    if (!$validate) {
+      $message = "Pid: $pid \nHas marc record, but it is not validate. MARC record DSID: $marc_dsid \n";
+      foreach ($errors as $error) {
+        $message .= trim($error->message) . "\n";
+      }
+      file_put_contents("public://invalidate_marcs_$offset-$limit.txt", $message . "\n", FILE_APPEND);
+    }
+  }
+  else {
+    libxml_clear_errors();
+    libxml_use_internal_errors(TRUE);
+    $errors = libxml_get_errors();
+    foreach ($errors as $error) {
+      $message .= trim($error->message) . "\n";
+    }
+    file_put_contents("public://invalidate_marcs_$offset-$limit.txt", $message . "\n", FILE_APPEND);
+  }
+}
+
+/**
+ * UWS migration batch.
+ *
+ * The migration connects to a remote fedora and validiate the marc
+ * 
+ * @param int $offset
+ *   The offset that start with.
+ * @param int $limit
+ *   The number that stop with.
+ */
+function drush_uwsdora_uws_batch_validate_marc($offset, $limit) {
+
+  // Prompt user to enter the remote Fedora.
+  $source_fedora = drush_prompt('Enter an remote Fedora:', 'http://example:8080/fedora', TRUE);
+  // Create a user object.
+  $source_user = new stdClass();
+  $source_user->uid = -1;
+  // Prompt user to enter the username and passowrd of the remote fedora.
+  $source_user->name = drush_prompt('Enter an admin user on the remote Fedora:', 'user', TRUE);
+  $source_user->pass = drush_prompt('Enter the password for the admin user:', 'password', TRUE, TRUE);
+
+  // Create a IslandoraTuque object to be used by the migration.
+  $source = new IslandoraTuque($source_user, $source_fedora);
+
+  // Set up a batch operation.
+  // The batch will have two operations one to query for the pids and the other
+  // to iterate through all of the pids and create the new objects.
+  $batch = array(
+    'title' => 'Batching...',
+    'operations' => array(
+      array('uwsdora_querie_remote_repo_for_pids', array($source)),
+      array('uwsdora_validate_marc_by_pids', array($source, $offset, $limit)),
+    ),
+    'finished' => 'uwsdora_validate_marc_complete,',
+  );
+
+  // Set the batch.
+  batch_set($batch);
+  // Process the batch process.
+  drush_backend_batch_process();
+}
+
+/**
+ * Batch finish function.
+ */
+function uwsdora_validate_marc_complete($success, $results, $operations) {
+  if ($success) {
+    $message = t("Total number of successful marc records complete validation @count/@total \n", array(
+      '@total' => count($results['pids']),
+      '@count' => $results['success_count'],
+    ));
+
+    file_put_contents('/tmp/uwsdora_migration_log.txt', $message, FILE_APPEND);
+  }
+}
+
+/**
+ * Function to iterate through the list of pids and valiate marcs.
+ * 
+ * @param IslandoraTuque $repo
+ *   The remote tuque connection.
+ * @param int $offset
+ *   The offset that start with.
+ * @param int $limit
+ *   The number that stop with.
+ */
+function uwsdora_validate_marc_by_pids($repo, $offset, $limit, &$context) {
+
+  // Set the variable $pids to be  the variable $context['results']['pids'].
+  // $context['results']['pids'] is set from the first batch operation.
+  $pids = $context['results']['pids'];
+  $result = &$context['results'];
+
+  if (!isset($result['marc']) || !$result['marc']) {
+    $marc = file_get_contents(drupal_get_path('module', 'uwsdora') . '/xsd/MARC21slim.xsd');
+    if ($marc) {
+      $result['marc'] = $marc;
+    }
+  }
+  // Setup the sandbox if not already created.
+  $sandbox = &$context['sandbox'];
+  if (!isset($sandbox['offset'])) {
+    file_put_contents("public://invalidate_marcs_$offset-$limit.txt", '');
+    $context['results']['success_count'] = 0;
+    $sandbox['offset'] = $offset;
+    $left = count($pids) - $offset;
+    $sandbox['total'] = $left < ($limit - $offset) ? $left : $limit;
+    if ($sandbox['total'] === 0) {
+      return;
+    }
+  }
+
+  // Get the pid of the sandbox offset.
+  $pid = $pids[$sandbox['offset']]['pid']['value'];
+
+  // Validate marc.
+  uwsdora_validate_marc($repo, $pid, $offset, $limit, $context);
+
+  // Increment the sandbox offset.
+  $sandbox['offset']++;
+
+  // Check to see if the operation is completed.  It is completed when all of
+  // the pids are processed.
+  $context['finished'] = $sandbox['offset'] / $sandbox['total'];
 }
