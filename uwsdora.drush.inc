@@ -261,6 +261,14 @@ function uwsdora_validate_marc($repo, $pid,$offset,$limit, &$context) {
   }
 }
 
+/**
+ * Function to Create a new object based on remote fedora object.
+ *
+ * @param IslandoraTuque $repo
+ *   The remote tuque connection.
+ * @param string $pid
+ *   The pid of the object on the remote Fedora.
+ */
 function uwsdora_create_object($repo, $pid, &$context) {
   module_load_include('inc', 'islandora', 'includes/utilities');
 
