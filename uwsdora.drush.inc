@@ -21,7 +21,7 @@ function uwsdora_drush_command() {
   $items['uws_batch_validate_marc'] = array(
     'description' => 'University of Western Sydney Marc record validation',
     'examples' => array(
-      'drush -u 1 uws_batch_validate_marc',
+      'drush -u 1 uws_batch_validate_marc 0 1000',
     ),
     'bootstrap' => DRUSH_BOOTSTRAP_MAX,
   );
